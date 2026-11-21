@@ -5,8 +5,9 @@ export const 账期状态 = { open: '开放', sealed: '已封印', expired: '已
 export const 批状态 = {
   open: '开放',
   sealed: '已封印',
-  expired: '已作废',
+  expired: '已过期',
   stale: '尺子已变·待重对齐',
+  void: '已作废',
 }
 export const 命运 = {
   pending: '未决',

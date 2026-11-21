@@ -33,11 +33,6 @@ onMounted(async () => {
   const bs = await api.batches(periodId.value)
   if (bs[0]) await loadBatch(bs[0].batch_id)
 })
-
-const snap = ref(null)
-onMounted(async () => {
-  try { snap.value = await api.get('/api/snapshot-pending') } catch (_) {}
-})
 </script>
 <template>
   <div>

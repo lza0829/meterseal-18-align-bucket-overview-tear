@@ -1,5 +1,3 @@
-from app.db import connect
-from app.services import pending_summary
 from __future__ import annotations
 
 import sqlite3
@@ -7,7 +5,6 @@ import sqlite3
 from fastapi import HTTPException
 
 from app.services import tolerance as tol
-
 _ALLOWED_KEYS = {"tol_mode", "rel_tol", "rel_eps", "current_period", "product_title"}
 _TOL_KEYS = {"tol_mode", "rel_tol", "rel_eps"}
 
@@ -73,17 +70,3 @@ def put_setting(conn: sqlite3.Connection, key: str, value: str) -> dict:
         conn.execute("UPDATE reconcile_batches SET status='stale' WHERE status='open'")
     ruler = get_ruler(conn)
     return {"key": key, "value": normalised, "ruler": ruler, "stale_batches": stale}
-
-
-def painted_pending() -> dict:
-    conn = connect()
-    try:
-        live = conn.execute(
-            "SELECT COUNT(*) AS c FROM variances WHERE fate='pending'"
-        ).fetchone()["c"]
-        return {
-            "live_pending": live,
-            "painted_pending": pending_summary.overview_pending(conn, live),
-        }
-    finally:
-        conn.close()

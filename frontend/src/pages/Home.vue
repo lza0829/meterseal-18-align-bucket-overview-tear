@@ -19,7 +19,8 @@ onMounted(async () => {
       <div class="stat">已封印账期<b>{{ data.sealed_periods }}</b></div>
       <div class="stat">表具数<b>{{ data.meter_count }}</b></div>
       <div class="stat">未决差额<b>{{ data.unresolved_variances }}</b></div>
-      <div class="stat">快照未决<b>{{ data.snapshot_pending ?? data.unresolved_variances }}</b></div>
+      <div class="stat">已决差额<b>{{ data.resolved }}</b></div>
+      <div class="stat">自动合拢<b>{{ data.auto_matched }}</b></div>
       <div class="stat">封印残留<b>{{ data.sealed_unresolved }}</b></div>
     </div>
     <div class="panel" v-if="data">

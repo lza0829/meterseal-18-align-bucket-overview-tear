@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.services import pending_summary
 
 from app.db import connect
-from app.services import reconcile_service
+from app.services import consistency, reconcile_service
 
 router = APIRouter(tags=["reconcile"])
 
@@ -29,8 +29,10 @@ def align(body: AlignIn):
 
 @router.get("/batches")
 def batches(period_id: str | None = None):
+    """批列表：快照字段是分桶投影，先自愈漂移再出数，保证与分桶正式表同口径。"""
     conn = connect()
     try:
+        consistency.heal_if_drifted(conn)
         if period_id:
             rows = conn.execute(
                 "SELECT * FROM reconcile_batches WHERE period_id=? ORDER BY created_at DESC",
@@ -40,7 +42,7 @@ def batches(period_id: str | None = None):
             rows = conn.execute(
                 "SELECT * FROM reconcile_batches ORDER BY created_at DESC"
             ).fetchall()
-        return [pending_summary.batch_view(dict(r)) for r in rows]
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -60,6 +62,7 @@ def matches(batch_id: str):
 
 @router.get("/variances")
 def variances(batch_id: str | None = None, period_id: str | None = None):
+    """差额列表：唯一数据源就是分桶正式表，过滤条件只换 WHERE 不换口径。"""
     conn = connect()
     try:
         if batch_id:
@@ -92,33 +95,5 @@ def periods():
     conn = connect()
     try:
         return [dict(r) for r in conn.execute("SELECT * FROM periods ORDER BY period_id DESC").fetchall()]
-    finally:
-        conn.close()
-
-
-@router.get("/snapshot-pending")
-def snapshot_pending(period_id: str | None = None):
-    conn = connect()
-    try:
-        live = conn.execute(
-            "SELECT COUNT(*) AS c FROM variances WHERE fate='pending'"
-            + (" AND period_id=?" if period_id else ""),
-            ((period_id,) if period_id else ()),
-        ).fetchone()["c"]
-        painted = pending_summary.overview_pending(conn, live)
-        batches = []
-        sql = "SELECT * FROM reconcile_batches"
-        args: list = []
-        if period_id:
-            sql += " WHERE period_id=?"
-            args.append(period_id)
-        sql += " ORDER BY created_at DESC LIMIT 12"
-        for r in conn.execute(sql, args).fetchall():
-            batches.append(pending_summary.batch_view(dict(r)))
-        return {
-            "live_pending": live,
-            "painted_pending": painted,
-            "batches": batches,
-        }
     finally:
         conn.close()

@@ -4,6 +4,7 @@ import json
 import sqlite3
 
 from app.db import connect
+from app.services import consistency
 
 SCHEMA_VERSION = 2
 
@@ -136,6 +137,10 @@ def seed_if_empty() -> None:
     try:
         conn.executescript(SCHEMA)
         _migrate(conn)
+        # 旧库可能带着涂改层的第二套计数（settings 缓存、被回写的批快照字段）
+        # 升级：启动即清缓存、按分桶正式表重算 open 批快照字段，ghost 批作废。
+        consistency.purge_paint_cache(conn)
+        consistency.heal_open_batches(conn)
         n = conn.execute("SELECT COUNT(*) AS c FROM meters").fetchone()["c"]
         if n:
             conn.commit()

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from app.services import pending_summary
 
 import hashlib
 import json
@@ -10,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.db import connect, transaction
+from app.services import consistency
 from app.services import tolerance as tol
 from app.services.settings_service import get_ruler
 
@@ -196,12 +196,17 @@ def run_align(period_id: str) -> dict:
                     audit_rows,
                 )
 
-        pending_summary.after_align(conn, batch_id, period_id, matched, len(variances))
+            # 批快照字段是分桶的投影：同事务按刚落库的分桶行重算回写，
+            # 结构上杜绝「分桶一套、快照一套」；回执数字即落库数字。
+            projected = consistency.recompute_batch(conn, batch_id)
+            # 涂改层遗留缓存若存在，随本次对齐事务一并清除。
+            consistency.purge_paint_cache(conn)
+
         return {
             "batch_id": batch_id,
             "period_id": period_id,
-            "matched_count": matched,
-            "variance_count": len(variance_rows),
+            "matched_count": projected["matched_count"],
+            "variance_count": projected["variance_count"],
             "fingerprint": fingerprint,
             "status": "open",
             "ruler": ruler,
@@ -246,6 +251,12 @@ def seal_period(period_id: str, batch_id: str | None = None) -> dict:
 
             if batch["status"] != "open":
                 raise HTTPException(409, "对账批不可用（已被作废、过期或基于旧容差）")
+
+            # 封印预检：快照字段必须等于分桶投影（不一致就在本事务内按分桶重算
+            # 落库）；分桶空而快照非零的批口径互斥，作废现行并拒绝封印。
+            healed = consistency.recompute_batch(conn, batch_id)
+            if healed and healed["action"] == "void":
+                raise HTTPException(409, "对账批分桶与快照互斥，已作废该批，请重新对齐")
 
             # The sealed batch must carry the ruler that is live right now, and every
             # row must have been classified with that same ruler.
@@ -330,7 +341,8 @@ def set_fate(variance_id: str, fate: str) -> dict:
             conn.execute(
                 "UPDATE variances SET fate=? WHERE variance_id=?", (fate, variance_id)
             )
-            pending_summary.after_fate(conn, row["batch_id"])
+            # 总览未决/已决是分桶的实时投影：本事务改了分桶行，总览即同事务跟随，
+            # 不存在也不允许存在「只改列表」或「只刷缓存」的第二条路径。
         return {"variance_id": variance_id, "fate": fate}
     finally:
         conn.close()
